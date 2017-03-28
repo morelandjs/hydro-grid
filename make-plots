@@ -1,0 +1,244 @@
+#!/usr/bin/env python3
+
+import argparse
+import glob
+import matplotlib.pyplot as plt
+import matplotlib.ticker as tick
+import numpy as np
+
+
+aspect = 1/1.618
+resolution = 72.27
+columnwidth = 246/resolution
+textwidth = 510/resolution
+textiny, texsmall, texnormal = 8.0, 9.25, 10.0
+offblack = '#262626'
+
+events_path = '/var/phy/project/nukeserv/jsm55/events/'
+
+plot_functions = {}
+
+def plot(f):
+    def wrapper(*args, **kwargs):
+        #print(f.__name__)
+        f(*args, **kwargs)
+        plt.savefig('{}.pdf'.format(f.__name__))
+        plt.close()
+
+    plot_functions[f.__name__] = wrapper
+
+    return wrapper
+
+
+def finish(despine=True, remove_ticks=False, pad=0.1, h_pad=None, w_pad=None,
+           rect=[0, 0, 1, 1]):
+    fig = plt.gcf()
+
+    for ax in fig.axes:
+        if despine:
+            for spine in 'top', 'right':
+                ax.spines[spine].set_visible(False)
+
+        if remove_ticks:
+            for ax_name in 'xaxis', 'yaxis':
+                getattr(ax, ax_name).set_ticks_position('none')
+        else:
+            ax.xaxis.set_ticks_position('bottom')
+            ax.yaxis.set_ticks_position('left')
+
+    fig.tight_layout(pad=pad, h_pad=h_pad, w_pad=w_pad, rect=rect)
+
+@plot
+def grid_step():
+    fig, axes = plt.subplots(
+        nrows=4, sharex=True,
+        figsize=(columnwidth, 4*aspect*columnwidth)
+    )
+
+    path = events_path + '/step-size/fixed-nucleon-width/*/*'
+    event_files = glob.glob(path)
+
+    dtype = np.dtype([
+        ('dxy',      float),
+        ('ncell*',     int),
+        ('volume*',  float),
+        ('vt*',      float),
+        ('q2*',    complex),
+        ('q3*',    complex),
+        ('q4*',    complex),
+        ('q5*',    complex),
+        ('ncell',      int),
+        ('volume',   float),
+        ('vt',       float),
+        ('q2',     complex),
+        ('q3',     complex),
+        ('q4',     complex),
+        ('q5',     complex),
+    ])
+
+    def load_event_data(f):
+        print('reading', f, end='\r')
+        d = np.fromfile(f, dtype=dtype)
+        return d
+
+    events = np.concatenate(
+        [load_event_data(f) for f in event_files])
+
+    # cut events on 0-80% centrality
+    events = events[events['volume*'].argsort()]
+    events = events[int(.2*events.size):]
+
+    # observables
+    dxy = events['dxy']
+    volume = events['volume']/events['volume*']
+    vt = events['vt']/events['vt*']
+    q2 = np.absolute(events['q2']) / np.absolute(events['q2*'])
+    q3 = np.absolute(events['q3']) / np.absolute(events['q3*'])
+    observables = volume, vt, q2, q3
+
+    limits = [(0.98, 1.06), (0.85, 1.02),
+              (0.8, 1.2), (0.8, 1.2)]
+
+    labels = [
+        r'$V/V^*$',
+        r'$\langle v_T \rangle / \langle v_T^* \rangle$',
+        r'$\langle Q_2 \rangle / \langle Q_2^* \rangle $',
+        r'$\langle Q_3 \rangle / \langle Q_3^* \rangle $'
+    ] 
+
+    # benchmark
+    for ax in axes:
+        h, w = 1, 0.01
+        ax.axhline(h, color='0.4', zorder=0)
+        x = np.linspace(0, 0.2)
+        ax.fill_between(
+            x, h - w, h + w, color='.7', alpha=0.3, lw=0, zorder=0
+        )
+    
+    # model data
+    for (ax, obs, lim, lbl) in zip(axes, observables, limits, labels):
+        for step in np.linspace(0.03, 0.18, 6):
+            obs_step = obs[dxy == step]
+            if len(obs_step) > 0:
+                vp = ax.violinplot(
+                    obs[dxy == step], positions=[step], widths=0.02,
+                    showextrema=False, showmedians=True
+                )
+
+                for v in vp['bodies']:
+                    v.set_alpha(.5)
+
+        if ax.is_first_row():
+            ax.set_title('Spatial grid step')
+        if ax.is_last_row():
+            ax.set_xlabel(r'$dx_\perp$ [fm]')
+
+        ax.set_xlim(0.02, 0.2)
+        ax.set_ylim(*lim)
+        ax.set_ylabel(lbl)
+
+    finish(pad=0.6)
+
+@plot
+def grid_max():
+    fig, axes = plt.subplots(
+        nrows=4, sharex=True,
+        figsize=(columnwidth, 4*aspect*columnwidth)
+    )
+    path = events_path + '/grid-max/*/*/*'
+    event_files = glob.glob(path)
+
+    dtype = np.dtype([
+        ('volume',  float,    7),
+        ('vt',      float,    7),
+        ('q2',      complex,  7),
+        ('q3',      complex,  7),
+        ('q4',      complex,  7),
+        ('q5',      complex,  7),
+    ])
+
+    def load_event_data(f):
+        print('reading', f, end='\r')
+        d = np.fromfile(f, dtype=dtype)
+        return d
+
+    events = np.concatenate(
+        [load_event_data(f) for f in event_files])
+
+    # cut events on 0-80% centrality
+    events = events[events['volume'][:,0].argsort()]
+    events = events[int(.2*events.size):]
+
+    def ratio(events):
+        return events[:, 1:] / events[:, :1]
+
+    def diff(events):
+        return events[:, 1:] - events[:, :1]
+
+    volume = ratio(events['volume'])
+    vt = ratio(events['vt'])
+    q2 = ratio(np.absolute(events['q2']))
+    q3 = ratio(np.absolute(events['q3']))
+    observables = volume, vt, q2, q3
+
+    limits = [(0.96, 1.02), (0.96, 1.02),
+              (0.8, 1.2), (0.8, 1.2)]
+
+    labels = [
+        r'$V/V^*$',
+        r'$\langle v_T \rangle / \langle v_T^* \rangle$',
+        r'$\langle Q_2 \rangle / \langle Q_2^* \rangle $',
+        r'$\langle Q_3 \rangle / \langle Q_3^* \rangle $'
+    ] 
+
+    # benchmark
+    for ax in axes:
+        h, w = 1, 0.01
+        ax.axhline(h, color='0.4', zorder=0)
+        x = np.linspace(0, 0.4)
+        ax.fill_between(
+            x, h - w, h + w, color='.7', alpha=0.3, lw=0, zorder=0
+        )
+
+    for (ax, obs, lim, lbl) in zip(axes, observables, limits, labels):
+        for j, esw in enumerate(np.linspace(0.05, 0.3223, 6)):
+            vp = ax.violinplot(
+                obs[:, j], positions=[esw], widths=0.02,
+                showextrema=False, showmedians=True
+            )
+
+            for v in vp['bodies']:
+                v.set_alpha(.5)
+
+        if ax.is_first_row():
+            ax.set_title('Spatial grid extent')
+        if ax.is_last_row():
+            ax.set_xlabel(r'$e_\mathrm{trunc}$ [GeV/fm$^3$]')
+
+        ax.set_xlim(0, 0.35)
+        ax.set_ylim(*lim)
+        ax.set_ylabel(lbl)
+
+    finish(pad=0.6)
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('plots', nargs='*')
+    args = parser.parse_args()
+
+    if args.plots:
+        for i in args.plots:
+            if i.endswith('.pdf'):
+                i = i[:-4]
+            if i in plot_functions:
+                plot_functions[i]()
+            else:
+                print('unknown plot:', i)
+    else:
+        for f in plot_functions.values():
+            f()
+
+
+if __name__ == "__main__":
+    main()    
