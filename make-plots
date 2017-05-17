@@ -49,13 +49,13 @@ def finish(despine=True, remove_ticks=False, pad=0.1, h_pad=None, w_pad=None,
     fig.tight_layout(pad=pad, h_pad=h_pad, w_pad=w_pad, rect=rect)
 
 @plot
-def grid_step():
+def dxy():
     fig, axes = plt.subplots(
         nrows=4, sharex=True,
         figsize=(columnwidth, 4*aspect*columnwidth)
     )
 
-    path = events_path + '/step-size/fixed-nucleon-width/*/*'
+    path = events_path + 'grid-tests/dxy/fixed-nucleon-width/*/*'
     event_files = glob.glob(path)
 
     dtype = np.dtype([
@@ -96,7 +96,7 @@ def grid_step():
     q3 = np.absolute(events['q3']) / np.absolute(events['q3*'])
     observables = volume, vt, q2, q3
 
-    limits = [(0.98, 1.06), (0.85, 1.02),
+    limits = [(0.98, 1.1), (0.9, 1.02),
               (0.8, 1.2), (0.8, 1.2)]
 
     labels = [
@@ -130,6 +130,8 @@ def grid_step():
 
         if ax.is_first_row():
             ax.set_title('Spatial grid step')
+            ax.annotate('nucleon width $w=0.5$ fm', xy=(0.5, 0.9),
+                        xycoords='axes fraction', ha='center')
         if ax.is_last_row():
             ax.set_xlabel(r'$dx_\perp$ [fm]')
 
@@ -140,12 +142,12 @@ def grid_step():
     finish(pad=0.6)
 
 @plot
-def grid_max():
+def xymax():
     fig, axes = plt.subplots(
         nrows=4, sharex=True,
         figsize=(columnwidth, 4*aspect*columnwidth)
     )
-    path = events_path + '/grid-max/*/*/*'
+    path = events_path + '/grid-tests/xymax/*/*/*'
     event_files = glob.glob(path)
 
     dtype = np.dtype([
@@ -216,6 +218,101 @@ def grid_max():
             ax.set_xlabel(r'$e_\mathrm{trunc}$ [GeV/fm$^3$]')
 
         ax.set_xlim(0, 0.35)
+        ax.set_ylim(*lim)
+        ax.set_ylabel(lbl)
+
+    finish(pad=0.6)
+
+@plot
+def dxy_dt():
+    fig, axes = plt.subplots(
+        nrows=4, sharex=True,
+        figsize=(columnwidth, 4*aspect*columnwidth)
+    )
+
+    path = events_path + '/grid-tests/dxy_dt/*/*/*'
+    event_files = glob.glob(path)
+
+    dtype = np.dtype([
+        ('aspect',   float),
+        ('ncell*',     int),
+        ('volume*',  float),
+        ('vt*',      float),
+        ('q2*',    complex),
+        ('q3*',    complex),
+        ('q4*',    complex),
+        ('q5*',    complex),
+        ('ncell',      int),
+        ('volume',   float),
+        ('vt',       float),
+        ('q2',     complex),
+        ('q3',     complex),
+        ('q4',     complex),
+        ('q5',     complex),
+    ])
+
+    def load_event_data(f):
+        print('reading', f, end='\r')
+        d = np.fromfile(f, dtype=dtype)
+        return d
+
+    events = np.concatenate(
+        [load_event_data(f) for f in event_files])
+
+    # cut events on 0-80% centrality
+    events = events[events['volume*'].argsort()]
+    events = events[int(.2*events.size):]
+
+    # observables
+    ratio = events['aspect']
+    volume = events['volume']/events['volume*']
+    vt = events['vt']/events['vt*']
+    q2 = np.absolute(events['q2']) / np.absolute(events['q2*'])
+    q3 = np.absolute(events['q3']) / np.absolute(events['q3*'])
+    observables = volume, vt, q2, q3
+
+    limits = [(0.95, 1.05), (0.95, 1.05),
+              (0.8, 1.2), (0.8, 1.2)]
+
+    labels = [
+        r'$V/V^*$',
+        r'$\langle v_T \rangle / \langle v_T^* \rangle$',
+        r'$\langle Q_2 \rangle / \langle Q_2^* \rangle $',
+        r'$\langle Q_3 \rangle / \langle Q_3^* \rangle $'
+    ] 
+
+    # benchmark
+    for ax in axes:
+        h, w = 1, 0.01
+        ax.axhline(h, color='0.4', zorder=0)
+        x = np.linspace(0, 12)
+        ax.fill_between(
+            x, h - w, h + w, color='.7', alpha=0.3, lw=0, zorder=0
+        )
+    
+
+    # model data
+    for (ax, obs, lim, lbl) in zip(axes, observables, limits, labels):
+        ratios = np.linspace(1.5, 10.5, 10)
+        for rlo, rhi in zip(ratios[:-1], ratios[1:]):
+            obs_aspect = obs[(ratio > rlo) & (ratio < rhi)]
+            if len(obs_aspect) > 0:
+                vp = ax.violinplot(
+                    obs_aspect, positions=[0.5*(rlo + rhi)], widths=0.75,
+                    showextrema=False, showmedians=True
+                )
+
+                for v in vp['bodies']:
+                    v.set_alpha(.5)
+
+        if ax.is_first_row():
+            ax.set_title(r'Spacetime proportions')
+            ax.annotate('nucleon width $w=0.5$ fm', xy=(0.5, 0.9),
+                        xycoords='axes fraction', ha='center')
+        if ax.is_last_row():
+            ax.set_xlabel(r'$dx_\perp/d\tau$ [fm]')
+
+        ax.set_xlim(1, 12)
         ax.set_ylim(*lim)
         ax.set_ylabel(lbl)
 
